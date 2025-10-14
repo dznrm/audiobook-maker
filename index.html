@@ -1,0 +1,471 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>free ai audiobook maker (dynamic voices, local)</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <style>
+    :root { --bg:#0b0f14; --panel:#111826; --muted:#97a3b6; --text:#e7eefc; --accent:#65b3ff; }
+    *{box-sizing:border-box}
+    body{margin:0;background:linear-gradient(180deg,#0b0f14,#0a0d12);color:var(--text);font:16px/1.45 system-ui, -apple-system, Segoe UI, Roboto, Inter, Arial}
+    header{padding:20px 16px;border-bottom:1px solid #162033}
+    h1{margin:0;font-size:20px}
+    .wrap{max-width:1200px;margin:0 auto;padding:16px;display:grid;gap:16px;grid-template-columns: 1.2fr .8fr}
+    @media (max-width: 980px){ .wrap{grid-template-columns:1fr} }
+    .card{background:var(--panel);border:1px solid #162033;border-radius:14px;padding:14px}
+    label{display:block;font-size:13px;color:var(--muted);margin:8px 0 4px}
+    textarea, input, select{width:100%;background:#0c141f;color:var(--text);border:1px solid #1b2b46;border-radius:10px;padding:10px 12px}
+    textarea{min-height:140px;resize:vertical}
+    button{background:#17365d;color:#e7eefc;border:none;border-radius:12px;padding:10px 14px;cursor:pointer}
+    button:hover{filter:brightness(1.08)}
+    .row{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
+    .muted{color:var(--muted);font-size:13px}
+    .status{font-size:13px;color:var(--accent)}
+    .history-item{padding:10px;border:1px solid #1b2b46;border-radius:12px;margin:10px 0}
+    .title-line{display:flex;justify-content:space-between;gap:10px;align-items:center}
+    .story{white-space:pre-wrap;background:#0c141f;border:1px solid #1b2b46;border-radius:10px;padding:10px;margin-top:8px;max-height:240px;overflow:auto}
+    .pill{font-size:12px;color:#9ecbff;background:#14253e;border:1px solid #214770;border-radius:999px;padding:2px 8px}
+    .small{font-size:12px}
+    .audio-row{display:flex;gap:8px;align-items:center;margin-top:8px}
+    .progress{height:6px;background:#0c141f;border:1px solid #1b2b46;border-radius:999px;overflow:hidden}
+    .bar{height:100%;width:0;background:linear-gradient(90deg,#5fa8ff,#86ffd8)}
+    .notice{font-size:12px;color:var(--muted)}
+    .danger{background:#3a1111;border-color:#5b1a1a}
+    .grid{display:grid;gap:10px;grid-template-columns:1fr 1fr}
+    @media (max-width: 640px){ .grid{grid-template-columns:1fr} }
+    .subtle{opacity:.85}
+    .kbd{font-size:12px;background:#0c141f;border:1px solid #1b2b46;border-radius:6px;padding:2px 6px}
+  </style>
+</head>
+<body>
+  <header>
+    <h1>free ai audiobook maker (dynamic voices, local)</h1>
+    <div class="muted">no servers, no keys. llm + tts run on your device with WebGPU. first load = big download, then cached.</div>
+  </header>
+
+  <div class="wrap">
+    <!-- left: composer -->
+    <section class="card">
+      <div class="row">
+        <div class="pill">100% local • webgpu</div>
+        <div id="status" class="status">loading models… first time takes a bit</div>
+      </div>
+
+      <div class="grid">
+        <div>
+          <label for="prompt">your idea</label>
+          <textarea id="prompt" placeholder="e.g., a ww1 survivor recounts the trenches and returning home"></textarea>
+        </div>
+        <div>
+          <label for="minutes">target length (minutes)</label>
+          <select id="minutes">
+            <option>5</option><option selected>10</option><option>15</option><option>20</option><option>30</option>
+          </select>
+          <label for="wpm">reading pace (words/min)</label>
+          <input id="wpm" type="number" value="150" min="110" max="190" />
+        </div>
+      </div>
+
+      <div class="row" style="margin-top:8px">
+        <button id="genBtn">generate story</button>
+        <button id="stopGenBtn" class="danger">stop</button>
+        <div class="muted">aims for length using your WPM</div>
+      </div>
+
+      <label for="story" style="margin-top:10px">story draft (editable)</label>
+      <textarea id="story" placeholder="your generated story will appear here. you can tweak it before audio."></textarea>
+
+      <hr class="subtle" style="border:none;height:1px;background:#162033;margin:14px 0" />
+
+      <!-- voice controls -->
+      <div class="grid">
+        <div>
+          <label for="voiceMode">voice mode</label>
+          <select id="voiceMode">
+            <option value="dynamic" selected>dynamic (ai picks)</option>
+            <option value="manual">manual select</option>
+          </select>
+        </div>
+        <div id="manualBox">
+          <label for="voiceProfile">voice profile</label>
+          <select id="voiceProfile"></select>
+          <div class="row">
+            <button id="previewBtn">preview voice</button>
+            <span class="muted">sample: “the winter of 1917 never left me.”</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="row" style="margin-top:8px">
+        <button id="ttsBtn">make audio</button>
+        <button id="stopTtsBtn" class="danger">stop audio</button>
+        <button id="downloadBtn">download mp3</button>
+      </div>
+
+      <div class="audio-row">
+        <audio id="player" controls style="width:100%"></audio>
+      </div>
+      <div class="progress" style="margin-top:8px"><div id="prog" class="bar"></div></div>
+      <div class="notice" id="note">tip: first run downloads models into your browser cache. later runs are fast. <span class="kbd">shift+enter</span> to insert line break.</div>
+    </section>
+
+    <!-- right: history -->
+    <aside class="card">
+      <div class="row" style="justify-content:space-between">
+        <div class="pill">history</div>
+        <div class="row">
+          <button id="exportAll">export all (.json)</button>
+          <button id="clearAll" class="danger">clear all</button>
+        </div>
+      </div>
+      <div id="historyList"></div>
+    </aside>
+  </div>
+
+  <!-- libs -->
+  <script type="module">
+    // ===== deps =====
+    import * as webllm from "https://esm.run/@mlc-ai/web-llm";
+    import { pipeline } from "https://cdn.jsdelivr.net/npm/@xenova/transformers@3.0.0";
+    import "https://cdn.jsdelivr.net/npm/lamejs@1.2.1/lame.min.js";
+
+    // ===== ui refs =====
+    const $ = (id)=>document.getElementById(id);
+    const statusEl = $("status"), progEl = $("prog"), noteEl = $("note");
+    const promptEl = $("prompt"), minutesEl = $("minutes"), wpmEl = $("wpm");
+    const storyEl = $("story"), player = $("player");
+    const genBtn = $("genBtn"), stopGenBtn = $("stopGenBtn");
+    const ttsBtn = $("ttsBtn"), stopTtsBtn = $("stopTtsBtn"), downloadBtn = $("downloadBtn");
+    const exportAllBtn = $("exportAll"), clearAllBtn = $("clearAll"), historyList = $("historyList");
+    const voiceModeEl = $("voiceMode"), voiceProfileEl = $("voiceProfile"), previewBtn = $("previewBtn"), manualBox = $("manualBox");
+
+    // ===== global state =====
+    let engine;              // webllm engine for story + AI voice selection
+    let stopGen = false;
+    let ttsOute = null;      // transformers.js pipelines
+    let ttsBark = null;
+    let ttsBusy = false;
+    let wavPCM = null;       // Float32Array mono
+    let wavRate = 24000;
+
+    // ===== voice profiles =====
+    // each profile says which model + speaker/preset to use
+    const VOICES = [
+      { id:"old-man-1",   name:"old man (rough, bark)",   model:"bark",  preset:"v2/en_speaker_6" },
+      { id:"old-man-2",   name:"old man (calm, oute)",    model:"oute",  speaker:2 },
+      { id:"narrator",    name:"narrator (neutral, oute)",model:"oute",  speaker:0 },
+      { id:"young-man-1", name:"young man (bark)",        model:"bark",  preset:"v2/en_speaker_3" },
+      { id:"young-man-2", name:"young man (oute)",        model:"oute",  speaker:1 },
+      { id:"boy",         name:"boy (light, bark)",       model:"bark",  preset:"v2/en_speaker_9" },
+      { id:"woman-1",     name:"woman (warm, oute)",      model:"oute",  speaker:3 },
+      { id:"woman-2",     name:"woman (expressive, bark)",model:"bark",  preset:"v2/en_speaker_1" },
+      { id:"uk-narrator", name:"narrator (uk vibe, bark)",model:"bark",  preset:"v2/en_speaker_8" },
+      { id:"soft-elder",  name:"elder soft (oute)",       model:"oute",  speaker:4 },
+      { id:"radio-host",  name:"radio host (bark)",       model:"bark",  preset:"v2/en_speaker_7" },
+      { id:"storyteller", name:"storyteller (deep, bark)",model:"bark",  preset:"v2/en_speaker_5" },
+    ];
+    // note: presets/speakers are best-effort; change if your device/browser prefers different IDs.
+
+    // fill manual dropdown
+    function loadVoiceDropdown(){
+      voiceProfileEl.innerHTML = VOICES.map(v=>`<option value="${v.id}">${v.name}</option>`).join("");
+    }
+    loadVoiceDropdown();
+
+    // show/hide manual box
+    function updateVoiceModeUI(){
+      manualBox.style.display = voiceModeEl.value === "manual" ? "block" : "block"; // keep visible so you can still preview
+    }
+    voiceModeEl.onchange = updateVoiceModeUI; updateVoiceModeUI();
+
+    // ===== init models =====
+    async function initAll(){
+      try {
+        statusEl.textContent = "loading llm…";
+        engine = new webllm.MLCEngine();
+        await engine.reload({ model: "Llama-3.2-1B-instruct-q4f32_1-MLC" });
+
+        statusEl.textContent = "loading tts (oute)…";
+        ttsOute = await pipeline("text-to-speech", "onnx-community/OuteTTS-0.2-500M", { dtype:"fp16", device:"webgpu" });
+
+        statusEl.textContent = "loading tts (bark-small)…";
+        // smaller, faster bark. expressive. if this ever fails on your device, just comment it out and keep Oute.
+        ttsBark = await pipeline("text-to-speech", "Xenova/bark-small", { dtype:"fp16", device:"webgpu" });
+
+        statusEl.textContent = "ready.";
+        noteEl.textContent = "models cached locally. next runs are faster.";
+      } catch (e){
+        console.error(e);
+        statusEl.textContent = "failed to initialize (check WebGPU support, refresh, or use Chrome/Edge).";
+      }
+      renderHistory();
+    }
+    initAll();
+
+    // ===== misc helpers =====
+    function wordsForMinutes(mins, wpm){ return Math.max(120, Math.floor(mins * wpm)); }
+    function titleFromPrompt(p){ return (p||"untitled").slice(0,80).trim() || "untitled"; }
+    function ts(){ return new Date().toISOString(); }
+    function saveHistory(item){
+      const key="audiobook_hist_v2";
+      const arr = JSON.parse(localStorage.getItem(key)||"[]");
+      arr.unshift(item);
+      localStorage.setItem(key, JSON.stringify(arr.slice(0,300)));
+      renderHistory();
+    }
+    function delHistory(idx){
+      const key="audiobook_hist_v2";
+      const arr = JSON.parse(localStorage.getItem(key)||"[]");
+      arr.splice(idx,1);
+      localStorage.setItem(key, JSON.stringify(arr));
+      renderHistory();
+    }
+    function renderHistory(){
+      const arr = JSON.parse(localStorage.getItem("audiobook_hist_v2")||"[]");
+      historyList.innerHTML = arr.length ? arr.map((x,i)=>`
+        <div class="history-item">
+          <div class="title-line">
+            <div>
+              <div class="small">${new Date(x.date).toLocaleString()}</div>
+              <strong>${x.title}</strong>
+              <div class="small muted">${x.voiceName || "—"}</div>
+            </div>
+            <div class="row">
+              <button data-act="load" data-idx="${i}">load</button>
+              <button data-act="delete" data-idx="${i}" class="danger">delete</button>
+            </div>
+          </div>
+          <div class="story small">${x.text.slice(0,400)}${x.text.length>400?'…':''}</div>
+        </div>
+      `).join("") : `<div class="muted">no items yet.</div>`;
+    }
+    historyList.addEventListener("click", (e)=>{
+      const btn = e.target.closest("button"); if(!btn) return;
+      const act = btn.dataset.act, idx = +btn.dataset.idx;
+      const arr = JSON.parse(localStorage.getItem("audiobook_hist_v2")||"[]");
+      if(act==="delete"){ delHistory(idx); return; }
+      if(act==="load"){ const it = arr[idx]; promptEl.value = it.prompt || ""; storyEl.value = it.text || ""; voiceProfileEl.value = it.voiceId || VOICES[0].id; }
+    });
+    clearAllBtn.onclick = ()=>{ if(confirm("clear all history?")){ localStorage.removeItem("audiobook_hist_v2"); renderHistory(); } };
+    exportAllBtn.onclick = ()=>{
+      const data = localStorage.getItem("audiobook_hist_v2")||"[]";
+      const blob = new Blob([data], {type:"application/json"});
+      const a = Object.assign(document.createElement("a"), { href: URL.createObjectURL(blob), download: "audiobook_history.json" });
+      a.click();
+    };
+
+    // ===== generation (story) =====
+    genBtn.onclick = async ()=>{
+      stopGen = false;
+      const prompt = promptEl.value.trim();
+      if(!prompt){ alert("give me a prompt first"); return; }
+      const targetWords = wordsForMinutes(+minutesEl.value, +wpmEl.value);
+      storyEl.value = ""; progEl.style.width = "0%";
+      statusEl.textContent = "writing… (streaming)";
+
+      const sys = [
+        "you are a strong long-form storyteller.",
+        "write in first-person if it fits the topic.",
+        "rich, grounded details; coherent beginning-middle-end; no disclaimers.",
+        `target around ${targetWords} words.`,
+        "use natural paragraphing; avoid lists."
+      ].join("\n");
+
+      const messages = [
+        { role:"system", content: sys },
+        { role:"user", content: `topic: ${prompt}\nwrite the complete story now.` }
+      ];
+
+      let out = "";
+      const stream = await engine.chat.completions.create({
+        messages, stream: true, temperature: 0.9, max_tokens: Math.min(4096, targetWords*2)
+      });
+      for await (const chunk of stream){
+        if(stopGen){ break; }
+        const delta = chunk?.choices?.[0]?.delta?.content || "";
+        if(delta){ out += delta; storyEl.value = out; storyEl.scrollTop = storyEl.scrollHeight; }
+        const p = Math.min(95, (out.length / (targetWords*6)) * 100);
+        progEl.style.width = `${p}%`;
+      }
+      progEl.style.width = "100%";
+      statusEl.textContent = "story ready.";
+      saveHistory({ date: ts(), title: titleFromPrompt(prompt), prompt, text: storyEl.value, voiceId: voiceProfileEl.value, voiceName: getVoiceById(voiceProfileEl.value)?.name });
+    };
+    stopGenBtn.onclick = ()=>{ stopGen = true; statusEl.textContent = "stopped."; };
+
+    // ===== voice logic =====
+    function getVoiceById(id){ return VOICES.find(v=>v.id===id) || VOICES[0]; }
+
+    // rule-based fallback if AI selection fails
+    function rulePickVoice(prompt, text){
+      const s = `${prompt}\n${text}`.toLowerCase();
+      if (/(ww1|war|veteran|trenches|elder|grandfather|old man)/.test(s)) return "old-man-1";
+      if (/(narrator|documentary|history|expository)/.test(s)) return "narrator";
+      if (/(radio|news|host|show)/.test(s)) return "radio-host";
+      if (/(woman|mother|her story|she )/.test(s)) return "woman-1";
+      if (/(boy|child|kid)/.test(s)) return "boy";
+      if (/(young man|teen|student|he )/.test(s)) return "young-man-1";
+      return "narrator";
+    }
+
+    async function aiPickVoice(prompt, text){
+      try{
+        const ask = [
+          "You must pick exactly ONE voice for TTS given the user's prompt and story excerpt.",
+          "Voices: old man, young man, boy, woman, narrator, uk narrator, radio host, storyteller, elder soft.",
+          "Return only one of these ids (not the label):",
+          "old-man-1, old-man-2, young-man-1, young-man-2, boy, woman-1, woman-2, narrator, uk-narrator, radio-host, storyteller, soft-elder",
+          "Context:",
+          `PROMPT: ${prompt}`,
+          `EXCERPT: ${text.slice(0, 700)}`
+        ].join("\n");
+        const res = await engine.chat.completions.create({
+          messages: [
+            { role:"system", content: "You are selecting the best TTS voice. Output only the ID, nothing else."},
+            { role:"user", content: ask }
+          ],
+          temperature: 0.2, max_tokens: 8
+        });
+        const choice = (res?.choices?.[0]?.message?.content || "").trim();
+        // sanitize to a valid id
+        const match = VOICES.find(v => v.id === choice);
+        return match ? match.id : rulePickVoice(prompt, text);
+      } catch {
+        return rulePickVoice(prompt, text);
+      }
+    }
+
+    // ===== TTS core =====
+    function splitIntoSentences(text){
+      return text.replace(/\s+/g,' ').match(/[^.!?]+[.!?]+|\S+$/g) || [text];
+    }
+
+    async function runTTSWithVoice(text, voice){
+      const sents = splitIntoSentences(text);
+      const chunks = [];
+      let mergedLen = 0;
+      ttsBusy = true; statusEl.textContent = `synthesizing (${voice.name})…`;
+      progEl.style.width = "0%";
+
+      // choose pipeline
+      const useBark = voice.model === "bark";
+      const pipe = useBark ? ttsBark : ttsOute;
+
+      for(let i=0;i<sents.length;i++){
+        const part = sents[i].trim(); if(!part) continue;
+        let res;
+        if(useBark){
+          // Bark supports "speaker" presets; we pass it via speaker_id / voice_preset where available.
+          res = await pipe(part, { voice_preset: voice.preset || "v2/en_speaker_6" });
+        } else {
+          // OuteTTS multi-speaker via speaker_id
+          res = await pipe(part, { language:"en", speaker_id: (voice.speaker ?? 0) });
+        }
+        const pcm = res.audio instanceof Float32Array ? res.audio : new Float32Array(res.audio);
+        wavRate = res.sampling_rate || 24000;
+        chunks.push(pcm); mergedLen += pcm.length;
+        progEl.style.width = `${Math.min(100, ((i+1)/sents.length)*100)}%`;
+        await new Promise(r=>setTimeout(r,0));
+      }
+      const merged = new Float32Array(mergedLen);
+      let off = 0; for(const c of chunks){ merged.set(c, off); off += c.length; }
+      wavPCM = merged;
+      statusEl.textContent = "audio ready.";
+      return { audio: merged, rate: wavRate };
+    }
+
+    // Preview current profile with a short line
+    previewBtn.onclick = async ()=>{
+      const v = getVoiceById(voiceProfileEl.value);
+      await synthAndPlay("the winter of 1917 never left me.", v);
+    };
+
+    async function synthAndPlay(text, voice){
+      const { audio, rate } = await runTTSWithVoice(text, voice);
+      playPCM(audio, rate);
+    }
+
+    // playback + downloads
+    function floatTo16BitPCM(float32){
+      const buf = new ArrayBuffer(float32.length * 2);
+      const view = new DataView(buf);
+      let offset = 0;
+      for (let i = 0; i < float32.length; i++, offset += 2) {
+        let s = Math.max(-1, Math.min(1, float32[i]));
+        view.setInt16(offset, s < 0 ? s * 0x8000 : s * 0x7FFF, true);
+      }
+      return new Int16Array(buf);
+    }
+    function makeWavBlob(float32, sampleRate){
+      const pcm16 = floatTo16BitPCM(float32);
+      const wavBytes = 44 + pcm16.length * 2;
+      const buf = new ArrayBuffer(wavBytes);
+      const view = new DataView(buf);
+      let off=0; const writeStr=(o,s)=>{ for(let i=0;i<s.length;i++) view.setUint8(o+i, s.charCodeAt(i)); };
+      writeStr(off,'RIFF'); off+=4; view.setUint32(off,36+pcm16.length*2,true); off+=4;
+      writeStr(off,'WAVE'); off+=4; writeStr(off,'fmt '); off+=4;
+      view.setUint32(off,16,true); off+=4; view.setUint16(off,1,true); off+=2;
+      view.setUint16(off,1,true); off+=2; view.setUint32(off,sampleRate,true); off+=4;
+      view.setUint32(off,sampleRate*2,true); off+=4; view.setUint16(off,2,true); off+=2;
+      view.setUint16(off,16,true); off+=2; writeStr(off,'data'); off+=4;
+      view.setUint32(off, pcm16.length*2, true); off+=4;
+      new Int16Array(buf,44).set(pcm16);
+      return new Blob([buf], {type:"audio/wav"});
+    }
+    function playPCM(float32, sampleRate){
+      const wavBlob = makeWavBlob(float32, sampleRate);
+      player.src = URL.createObjectURL(wavBlob);
+      player.play().catch(()=>{ /* autoplay might be blocked */ });
+    }
+    function downloadMP3(float32, sampleRate, filename="story.mp3"){
+      const pcm16 = floatTo16BitPCM(float32);
+      const samples = Array.from(pcm16);
+      const mp3enc = new lamejs.Mp3Encoder(1, sampleRate, 128);
+      const chunk = 1152;
+      const mp3 = [];
+      for(let i=0;i<samples.length;i+=chunk){
+        const buf = mp3enc.encodeBuffer(samples.slice(i, i+chunk));
+        if(buf.length) mp3.push(buf);
+      }
+      const end = mp3enc.flush(); if(end.length) mp3.push(end);
+      const blob = new Blob(mp3, {type:"audio/mpeg"});
+      const a = Object.assign(document.createElement("a"), { href: URL.createObjectURL(blob), download: filename });
+      a.click();
+    }
+    downloadBtn.onclick = ()=>{
+      if(!wavPCM){ alert("generate audio first"); return; }
+      downloadMP3(wavPCM, wavRate, `${titleFromPrompt(promptEl.value)}.mp3`);
+    };
+
+    // make audio button
+    ttsBtn.onclick = async ()=>{
+      if(ttsBusy){ return; }
+      const text = storyEl.value.trim();
+      if(!text){ alert("no story text to read"); return; }
+
+      // choose voice (dynamic vs manual)
+      let voiceId = voiceProfileEl.value;
+      if(voiceModeEl.value === "dynamic"){
+        voiceId = await aiPickVoice(promptEl.value, text);
+        // reflect the pick in UI
+        voiceProfileEl.value = voiceId;
+      }
+      const voice = getVoiceById(voiceId);
+
+      await synthAndPlay(text, voice);
+
+      // save with chosen voice
+      const item = { date: ts(), title: titleFromPrompt(promptEl.value), prompt: promptEl.value, text, voiceId: voice.id, voiceName: voice.name };
+      saveHistory(item);
+    };
+
+    // stop audio
+    stopTtsBtn.onclick = ()=>{ player.pause(); };
+
+    // allow shift+enter newlines in prompt focus UX nicety
+    promptEl.addEventListener("keydown", (e)=>{
+      if(e.key==="Enter" && !e.shiftKey){ e.preventDefault(); genBtn.click(); }
+    });
+  </script>
+</body>
+</html>
