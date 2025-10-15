@@ -172,7 +172,8 @@
     }
 
     async function hordeQueue(prompt){
-      const res = await fetch("https://aihorde.net/api/v2/generate/text", {
+      const proxy = "https://cors-anywhere.herokuapp.com/";
+      const res = await fetch(proxy + "https://aihorde.net/api/v2/generate/text", {
         method: "POST",
         headers: HORDE_HEADERS,
         body: JSON.stringify({
@@ -197,7 +198,7 @@
     async function hordePoll(id){
       cancelPoll = false;
       while(!cancelPoll){
-        const r = await fetch(`https://aihorde.net/api/v2/generate/text/status/${id}`, {
+        const r = await fetch(proxy + `https://aihorde.net/api/v2/generate/text/status/${id}`, {
           headers: { "Client-Agent": "audiobook-maker:0.1" }
         });
         if (!r.ok) throw new Error("status " + r.status);
