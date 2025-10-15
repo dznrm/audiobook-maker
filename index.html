@@ -141,7 +141,7 @@
     statusEl.textContent = "loading speech (wasm)…";
     (async () => {
       try {
-        ttsOute = await pipeline("text-to-speech", "Xenova/speecht5_tts", { device: "wasm" });
+        ttsOute = await pipeline("text-to-speech", "Xenova/mms-tts-eng", { device: "wasm" });
         statusEl.textContent = "speech ready (wasm).";
       } catch (e) {
         console.error(e);
